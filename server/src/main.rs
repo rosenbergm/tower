@@ -25,9 +25,8 @@ use std::env;
 mod apps;
 mod caddy;
 mod docker;
+mod fsdb;
 mod mount;
-
-mod db;
 
 mod models;
 
@@ -87,21 +86,9 @@ fn ws(
     })
 }
 
-#[derive(Clone)]
-pub struct Db {
-    conn: DatabaseConnection,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv()?;
-
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in the `.env` file");
-    let conn = sea_orm::Database::connect(db_url)
-        .await
-        .expect("Could not connect to the database!");
-
-    db::run_migrations().await?;
 
     let docker = Docker::connect_with_socket_defaults()?;
 
@@ -138,7 +125,6 @@ async fn main() -> Result<()> {
         )
         .at("/ws/:app_name", get(ws.data(channel.0.clone())))
         .data(docker)
-        .data(Db { conn: conn.clone() })
         .with(cors);
 
     Server::new(TcpListener::bind("127.0.0.1:8000"))

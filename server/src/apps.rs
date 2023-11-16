@@ -8,9 +8,6 @@ use poem::{
     http::HeaderMap,
     web::{Data, Form, Json},
 };
-use sea_orm::{
-    entity::*, ActiveModelBehavior, ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::rc::Rc;
@@ -23,7 +20,7 @@ use crate::{
     docker,
     models::apps::{self, AppType},
     mount::{self, BASE},
-    Db, WSContainerData, WSMessage,
+    WSContainerData, WSMessage,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -39,18 +36,8 @@ pub async fn create_docker_app(
     Form(config): Form<CreateDockerApp>,
     docker: Data<&Docker>,
     sender: Data<&tokio::sync::broadcast::Sender<WSMessage>>,
-    db: Data<&Db>,
 ) -> anyhow::Result<()> {
     dbg!(&config);
-
-    let _ = apps::ActiveModel {
-        name: Set(config.name.clone()),
-        type_: Set(AppType::Docker),
-
-        ..apps::ActiveModel::new()
-    }
-    .insert(&db.conn)
-    .await?;
 
     let docker_ = docker.clone();
     let sender_ = sender.clone();
@@ -100,21 +87,20 @@ pub async fn create_docker_app(
 pub async fn delete_docker_app(
     poem::web::Path(name): poem::web::Path<String>,
     docker: Data<&Docker>,
-    db: Data<&Db>,
 ) -> anyhow::Result<()> {
     caddy::remove_app(&name).await?;
 
-    let app = apps::Entity::find()
-        .filter(apps::Column::Name.eq(&name))
-        .one(&db.conn)
-        .await?;
+    // let app = apps::Entity::find()
+    //     .filter(apps::Column::Name.eq(&name))
+    //     .one(&db.conn)
+    //     .await?;
 
-    match app {
-        Some(a) => {
-            apps::Entity::delete_by_id(a.id).exec(&db.conn).await?;
-        }
-        None => {}
-    }
+    // match app {
+    //     Some(a) => {
+    //         apps::Entity::delete_by_id(a.id).exec(&db.conn).await?;
+    //     }
+    //     None => {}
+    // }
 
     docker::delete_app(&name, &docker).await?;
 
@@ -204,19 +190,7 @@ pub struct CreateStaticApp {
 }
 
 #[handler]
-pub async fn create_static_app(
-    Form(config): Form<CreateStaticApp>,
-    db: Data<&Db>,
-) -> anyhow::Result<()> {
-    let _ = apps::ActiveModel {
-        name: Set(config.name.clone()),
-        type_: Set(AppType::Static),
-
-        ..apps::ActiveModel::new()
-    }
-    .insert(&db.conn)
-    .await?;
-
+pub async fn create_static_app(Form(config): Form<CreateStaticApp>) -> anyhow::Result<()> {
     let mountpoint = mount::create_static_project(&config.name)?;
 
     let entrypoint = Path::new(&config.entrypoint);
@@ -254,7 +228,6 @@ pub enum ContainerDetails {
 #[handler]
 pub async fn get_docker_apps(
     docker: Data<&Docker>,
-    db: Data<&Db>,
 ) -> anyhow::Result<Json<Vec<DockerAppResponse>>> {
     let containers = docker
         .list_containers(Some(ListContainersOptions::<String> {
@@ -265,7 +238,7 @@ pub async fn get_docker_apps(
 
     let routes = caddy::pull_config().await?;
 
-    let apps = apps::all_docker_apps().all(&db.conn).await?;
+    let apps = apps::all_docker_apps();
 
     let docker_apps: Vec<DockerAppResponse> =
         apps
@@ -394,10 +367,10 @@ pub struct StaticAppResponse {
 }
 
 #[handler]
-pub async fn get_static_apps(db: Data<&Db>) -> anyhow::Result<Json<Vec<StaticAppResponse>>> {
+pub async fn get_static_apps() -> anyhow::Result<Json<Vec<StaticAppResponse>>> {
     let routes = caddy::pull_config().await?;
 
-    let apps = apps::all_static_apps().all(&db.conn).await?;
+    let apps = apps::all_static_apps();
 
     let static_apps: Vec<StaticAppResponse> =
         apps
